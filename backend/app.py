@@ -1,17 +1,27 @@
 import os
+import sys
 from datetime import datetime, date
 from functools import wraps
+
+# Ensure backend directory is in sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from flask import Flask, request, jsonify, session, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from db import get_conn
+from db import get_conn, init_db
 
 app = Flask(__name__, static_folder=None)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
 app.config.update(
     SESSION_COOKIE_SAMESITE='Lax',
 )
+
+# Attempt auto database initialization on startup
+try:
+    init_db()
+except Exception as _e:
+    print(f"[SkillSwap] Note: Database auto-init skipped or waiting for credentials: {_e}")
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend')
 
@@ -177,6 +187,34 @@ def get_or_create_skill(cur, name):
 @app.route('/')
 def index():
     return send_from_directory(FRONTEND_DIR, 'skillswap.html')
+
+
+@app.route('/api/health')
+def health():
+    db_status = 'disconnected'
+    err_msg = None
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        conn.close()
+        db_status = 'connected'
+    except Exception as e:
+        err_msg = str(e)
+    return jsonify({
+        'status': 'healthy',
+        'database': db_status,
+        'error': err_msg
+    })
+
+
+@app.route('/api/init-db')
+def api_init_db():
+    try:
+        msg = init_db()
+        return jsonify({'status': 'ok', 'message': msg})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 # ─────────────────────────────────────────────────────────────
